@@ -10,25 +10,13 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---------- Load dictionaries ----------
+// ---------- Load dictionaries (used only to pick the secret word) ----------
 const WORDS = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'words.json'), 'utf-8'));
 // WORDS = { en: {5:[...],6:[...],7:[...],8:[...]}, fr: {...} }
-const WORD_SETS = {}; // WORD_SETS[lang][len] = Set
-for (const lang of Object.keys(WORDS)) {
-  WORD_SETS[lang] = {};
-  for (const len of Object.keys(WORDS[lang])) {
-    WORD_SETS[lang][len] = new Set(WORDS[lang][len]);
-  }
-}
 
 function randomWord(lang, len) {
   const list = WORDS[lang][String(len)];
   return list[Math.floor(Math.random() * list.length)];
-}
-
-function isValidWord(lang, len, guess) {
-  const set = WORD_SETS[lang] && WORD_SETS[lang][String(len)];
-  return !!set && set.has(guess);
 }
 
 // ---------- Room management ----------
@@ -281,8 +269,8 @@ io.on('connection', (socket) => {
       socket.emit('guess_error', { error: `Word must be ${room.settings.length} letters.` });
       return;
     }
-    if (!isValidWord(room.settings.language, room.settings.length, guess)) {
-      socket.emit('guess_error', { error: 'Not in dictionary.' });
+    if (!/^[a-z]+$/.test(guess)) {
+      socket.emit('guess_error', { error: 'Letters only.' });
       return;
     }
     const pattern = computePattern(room.secretWord, guess);

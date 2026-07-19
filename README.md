@@ -16,7 +16,10 @@ guess the same secret word.
 - Scoring: guessing on attempt *k* scores `(maxAttempts - k) + 1` points
   (earlier = more points; not solving = 0 points)
 - English / French dictionaries, switchable in the settings menu
-- Every guess is validated against the real dictionary for the chosen language/length
+- Guesses only need to be the right length and made of letters — they are
+  **not** checked against the dictionary, so any letter combination is a
+  valid guess (the secret word itself is still picked from the real
+  dictionary for the chosen language/length)
 - Optional per-row timer (default 10s, configurable 5–120s) — if you don't submit
   a full row in time, it's skipped and you move to the next attempt
 - True multiplayer: a Node.js + Socket.IO server holds the room state, so any
@@ -93,11 +96,17 @@ each other.
     was already delivered pre-lemmatized by its source and was spot-checked
     to confirm it doesn't contain conjugated forms.
   They're solid for a casual game but not a fully curated dictionary — a
-  handful of proper nouns or odd forms may still slip through, and the same
-  list is used both as the "answer" pool and as the "valid guess" checker.
-  Swap in `data/words.json` (same shape: `{en:{5:[...],...}, fr:{...}}`) with
-  a more official list (e.g. Scrabble dictionaries) if you want stricter
-  validation.
+  handful of proper nouns or odd forms may still slip through as possible
+  *secret* words (guesses themselves aren't checked against the dictionary at
+  all — see below). Swap in `data/words.json` (same shape:
+  `{en:{5:[...],...}, fr:{...}}`) with a more official list (e.g. Scrabble
+  dictionaries) if you want a cleaner pool of secret words.
+- Guesses aren't checked against the dictionary — this is intentional (see
+  Features above), but it does mean there's nothing stopping a player from
+  guessing random letter combinations to "probe" the secret word's letters
+  without needing to know a real word. If you'd rather bring dictionary
+  validation back, the change is a couple of lines in `server.js`'s
+  `submit_guess` handler.
 - No authentication/anti-cheat — anyone with the room code can join.
 
 ## Free hosting options
