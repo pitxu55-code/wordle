@@ -1,121 +1,16 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Duel Wordle</title>
-<link rel="stylesheet" href="style.css" />
-</head>
-<body>
-  <div id="app">
-
-    <!-- HOME SCREEN -->
-    <section id="screen-home" class="screen active">
-      <h1 class="logo">Duel <span>Wordle</span></h1>
-      <p class="tagline">A real-time head-to-head word game</p>
-
-      <div class="card">
-        <label class="field">
-          <span>Your name</span>
-          <input id="input-name" type="text" maxlength="18" placeholder="Player" />
-        </label>
-
-        <div class="home-actions">
-          <button id="btn-create" class="btn btn-primary">Create Room</button>
-          <div class="join-row">
-            <input id="input-code" type="text" maxlength="5" placeholder="ROOM CODE" autocomplete="off" />
-            <button id="btn-join" class="btn btn-secondary">Join</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- LOBBY SCREEN -->
-    <section id="screen-lobby" class="screen">
-      <h2>Room <span id="lobby-code" class="code-pill"></span></h2>
-      <p class="hint">Share this code with a friend so they can join.</p>
-
-      <div class="card players-card">
-        <h3>Players</h3>
-        <ul id="lobby-players" class="players-list"></ul>
-      </div>
-
-      <div class="card settings-card" id="settings-card">
-        <h3>Settings <span id="settings-lock" class="lock-hint"></span></h3>
-
-        <div class="field-row">
-          <label>Word length</label>
-          <div class="segmented" id="setting-length">
-            <button data-val="5">5</button>
-            <button data-val="6">6</button>
-            <button data-val="7">7</button>
-            <button data-val="8">8</button>
-          </div>
-        </div>
-
-        <div class="field-row">
-          <label>Language</label>
-          <div class="segmented" id="setting-language">
-            <button data-val="en">English</button>
-            <button data-val="fr">Français</button>
-          </div>
-        </div>
-
-        <div class="field-row">
-          <label>Timer per row</label>
-          <div class="timer-controls">
-            <label class="switch">
-              <input type="checkbox" id="setting-timer-enabled" />
-              <span class="slider"></span>
-            </label>
-            <input type="number" id="setting-timer-seconds" min="5" max="120" value="10" />
-            <span>seconds</span>
-          </div>
-        </div>
-
-        <p class="attempts-preview">Attempts: <b id="attempts-preview">6</b></p>
-      </div>
-
-      <div class="lobby-buttons">
-        <button id="btn-start" class="btn btn-primary">Start Game</button>
-        <button id="btn-leave" class="btn btn-ghost">Leave</button>
-      </div>
-      <p id="lobby-msg" class="msg"></p>
-    </section>
-
-    <!-- GAME SCREEN -->
-    <section id="screen-game" class="screen">
-      <div class="game-header">
-        <div class="game-header-left">
-          <span class="code-pill small" id="game-code"></span>
-          <span id="timer-badge" class="timer-badge hidden">⏱ <span id="timer-value">10</span>s</span>
-        </div>
-        <div id="opponents-bar" class="opponents-bar"></div>
-      </div>
-
-      <div id="board" class="board"></div>
-
-      <div id="msg-banner" class="msg-banner"></div>
-
-      <div id="keyboard" class="keyboard"></div>
-    </section>
-
-    <!-- RESULTS SCREEN -->
-    <section id="screen-results" class="screen">
-      <h2>Round Over</h2>
-      <p class="reveal">The word was <span id="reveal-word" class="reveal-word"></span></p>
-      <div class="card">
-        <ol id="results-list" class="results-list"></ol>
-      </div>
-      <div class="lobby-buttons">
-        <button id="btn-rematch" class="btn btn-primary">Rematch</button>
-        <button id="btn-home" class="btn btn-ghost">Back to Home</button>
-      </div>
-    </section>
-
-  </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="client.js"></script>
-</body>
-</html>
+{
+  "name": "duel-wordle",
+  "version": "1.0.0",
+  "description": "Real-time competitive multiplayer Wordle (EN/FR, 5-8 letters)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

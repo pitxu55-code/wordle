@@ -1,335 +1,118 @@
-const express = require('express');
-const http = require('http');
-const path = require('path');
-const fs = require('fs');
-const { Server } = require('socket.io');
+# Duel Wordle
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+A real-time, head-to-head multiplayer Wordle you can host yourself. Two (or more)
+players open the site in their own browser, join the same room code, and race to
+guess the same secret word.
 
-app.use(express.static(path.join(__dirname, 'public')));
+## Features
 
-// ---------- Load dictionaries ----------
-const WORDS = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'words.json'), 'utf-8'));
-// WORDS = { en: {5:[...],6:[...],7:[...],8:[...]}, fr: {...} }
-const WORD_SETS = {}; // WORD_SETS[lang][len] = Set
-for (const lang of Object.keys(WORDS)) {
-  WORD_SETS[lang] = {};
-  for (const len of Object.keys(WORDS[lang])) {
-    WORD_SETS[lang][len] = new Set(WORDS[lang][len]);
-  }
-}
+- Word length 5–8 letters (configurable per room)
+- Attempts = letters + 1 (5→6, 6→7, 7→8, 8→9)
+- Scoring: guessing on attempt *k* scores `(maxAttempts - k) + 1` points
+  (earlier = more points; not solving = 0 points)
+- English / French dictionaries, switchable in the settings menu
+- Every guess is validated against the real dictionary for the chosen language/length
+- Optional per-row timer (default 10s, configurable 5–120s) — if you don't submit
+  a full row in time, it's skipped and you move to the next attempt
+- True multiplayer: a Node.js + Socket.IO server holds the room state, so any
+  number of browsers/devices can connect and compete at once
+- Opponents' progress is shown live as colored dots only (not letters), so it
+  stays a fair race
 
-function randomWord(lang, len) {
-  const list = WORDS[lang][String(len)];
-  return list[Math.floor(Math.random() * list.length)];
-}
+## Project structure
 
-function isValidWord(lang, len, guess) {
-  const set = WORD_SETS[lang] && WORD_SETS[lang][String(len)];
-  return !!set && set.has(guess);
-}
+```
+wordle/
+  server.js          # Express + Socket.IO game server (rooms, scoring, validation)
+  package.json
+  data/
+    words.json        # {en:{5:[...],6:[...],7:[...],8:[...]}, fr:{...}} dictionaries
+  public/
+    index.html
+    style.css
+    client.js          # all client game logic (boards, keyboard, timer, sockets)
+```
 
-// ---------- Room management ----------
-const rooms = new Map(); // code -> room
+## Run it locally
 
-function genCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code;
-  do {
-    code = Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  } while (rooms.has(code));
-  return code;
-}
+Requires Node.js 18+.
 
-function maxAttemptsFor(len) {
-  // 5 letters -> 6 attempts, +1 attempt per extra letter
-  return 6 + (len - 5);
-}
+```bash
+cd wordle
+npm install
+npm start
+```
 
-function publicRoomState(room) {
-  return {
-    code: room.code,
-    hostId: room.hostId,
-    status: room.status,
-    settings: room.settings,
-    players: Array.from(room.players.values()).map(p => ({
-      id: p.id,
-      name: p.name,
-      connected: p.connected,
-      finished: p.finished,
-      solved: p.solved,
-      score: p.score,
-      attemptsUsed: p.attempts.length,
-      maxAttempts: room.maxAttempts,
-      pattern: p.attempts.map(a => a ? a.pattern : null) // colors only, no letters, for opponents
-    }))
-  };
-}
+Then open `http://localhost:3000` in two different browser windows (or have a
+friend on the same network open `http://<your-computer-ip>:3000`) to play against
+each other.
 
-function broadcastRoom(room) {
-  io.to(room.code).emit('room_update', publicRoomState(room));
-}
+> Note: I wasn't able to run `npm install` in this sandbox (no outbound network
+> access here), so the dependency install itself is untested in this environment
+> — but the code was syntax-checked and the core matching/scoring algorithm was
+> unit-tested by hand (including duplicate-letter edge cases like GUESS="plate"
+> vs SECRET="apple"). Run it locally first to confirm everything behaves as
+> expected before you rely on it for a real match.
 
-function clearPlayerTimer(player) {
-  if (player.timer) {
-    clearTimeout(player.timer);
-    player.timer = null;
-  }
-}
+## How to play
 
-function startPlayerTimer(room, player) {
-  clearPlayerTimer(player);
-  if (!room.settings.timerEnabled) return;
-  player.timer = setTimeout(() => {
-    // Time's up: skip this row (counts as a used, empty attempt)
-    if (player.finished) return;
-    player.attempts.push({ guess: null, pattern: null, skipped: true });
-    checkPlayerDone(room, player);
-    if (!player.finished) startPlayerTimer(room, player);
-    broadcastRoom(room);
-    io.to(player.id).emit('your_attempts', { attempts: player.attempts });
-  }, room.settings.timerSeconds * 1000);
-}
+1. Enter your name, click **Create Room** — you become the host and get a 5
+   character room code.
+2. Send the code to a friend; they enter it under **Join**.
+3. The host picks word length, language, and timer settings in the lobby, then
+   hits **Start Game**.
+4. Everyone gets their own board with the *same* secret word and races to solve
+   it — type or use the on-screen keyboard, Enter to submit.
+5. When everyone has finished (solved or run out of attempts), the word is
+   revealed and scores are shown. The host can hit **Rematch** to play again
+   with the same settings.
 
-function computePattern(secret, guess) {
-  const len = secret.length;
-  const pattern = new Array(len).fill('absent');
-  const secretArr = secret.split('');
-  const guessArr = guess.split('');
-  const used = new Array(len).fill(false);
+## Known limitations / things to tighten up if you extend this
 
-  for (let i = 0; i < len; i++) {
-    if (guessArr[i] === secretArr[i]) {
-      pattern[i] = 'correct';
-      used[i] = true;
-    }
-  }
-  for (let i = 0; i < len; i++) {
-    if (pattern[i] === 'correct') continue;
-    let foundIdx = -1;
-    for (let j = 0; j < len; j++) {
-      if (!used[j] && secretArr[j] === guessArr[i]) {
-        foundIdx = j;
-        break;
-      }
-    }
-    if (foundIdx !== -1) {
-      pattern[i] = 'present';
-      used[foundIdx] = true;
-    }
-  }
-  return pattern;
-}
+- Rooms live only in server memory — restarting the server clears all games.
+  Fine for casual play; add Redis or a DB if you need persistence.
+- The word lists are built from public frequency lists (Google's 10k English
+  words, a French lemma frequency list), filtered to 5–8 letters, with two
+  extra cleanup passes:
+  - **Accents are folded** — the French list is stored with diacritics
+    stripped (`é/è/ê→e`, `à/â→a`, `ç→c`, etc.), so accents never matter for
+    matching. This also means the game only ever needs a plain A–Z keyboard.
+  - **Conjugated verbs are filtered out** — English words ending in `-ing`/
+    `-ed` are dropped when they match a common verb root (`walking`,
+    `talked`, `building` → removed), keeping base/infinitive forms and
+    standalone nouns (`morning`, `wedding`, `spring`, `sterling` stay). This
+    is a heuristic against a ~250-word list of common verb roots, not a real
+    lemmatizer, so it isn't perfect — a genuinely obscure conjugated form
+    could still slip through, or in rare cases a legitimate word could be
+    caught if it happens to share a root with a common verb. The French list
+    was already delivered pre-lemmatized by its source and was spot-checked
+    to confirm it doesn't contain conjugated forms.
+  They're solid for a casual game but not a fully curated dictionary — a
+  handful of proper nouns or odd forms may still slip through, and the same
+  list is used both as the "answer" pool and as the "valid guess" checker.
+  Swap in `data/words.json` (same shape: `{en:{5:[...],...}, fr:{...}}`) with
+  a more official list (e.g. Scrabble dictionaries) if you want stricter
+  validation.
+- No authentication/anti-cheat — anyone with the room code can join.
 
-function scoreForAttempt(attemptNumber, maxAttempts) {
-  // attemptNumber is 1-indexed
-  return (maxAttempts - attemptNumber) + 1;
-}
+## Free hosting options
 
-function checkPlayerDone(room, player) {
-  const last = player.attempts[player.attempts.length - 1];
-  if (last && last.pattern && last.pattern.every(p => p === 'correct')) {
-    player.solved = true;
-    player.finished = true;
-    player.score = scoreForAttempt(player.attempts.length, room.maxAttempts);
-    clearPlayerTimer(player);
-  } else if (player.attempts.length >= room.maxAttempts) {
-    player.finished = true;
-    player.score = 0;
-    clearPlayerTimer(player);
-  }
-  if (player.finished) {
-    maybeEndGame(room);
-  }
-}
+This app needs a **persistent server process with WebSocket support**, which
+rules out pure static hosts (GitHub Pages, Netlify's static tier) and
+serverless-function platforms that don't keep a socket connection open. Good
+free-tier options that do support this:
 
-function maybeEndGame(room) {
-  const allFinished = Array.from(room.players.values()).every(p => p.finished || !p.connected);
-  if (allFinished && room.status === 'playing') {
-    room.status = 'finished';
-    for (const p of room.players.values()) clearPlayerTimer(p);
-    io.to(room.code).emit('game_over', {
-      secret: room.secretWord,
-      players: Array.from(room.players.values()).map(p => ({
-        id: p.id, name: p.name, score: p.score, solved: p.solved, attemptsUsed: p.attempts.length
-      }))
-    });
-    broadcastRoom(room);
-  }
-}
+| Host | Free tier notes |
+|---|---|
+| **Render.com** | Free "Web Service" tier runs a Node process and supports WebSockets. It spins down after ~15 minutes idle and takes 30–60s to wake back up on the next request — fine for casual games with friends. Easiest path: push this folder to a GitHub repo, connect it on Render, set build command `npm install` and start command `npm start`. |
+| **Fly.io** | Free allowance (small shared-CPU VM) that runs a real always-on container, so no cold-start sleep like Render's free tier. Deploy with the `fly` CLI (`fly launch`, `fly deploy`); it auto-detects Node apps. |
+| **Glitch.com** | Import the project (or paste the files in), it runs Node + WebSockets out of the box, good for quick demos; free projects sleep after inactivity and have modest resource limits. |
+| **Railway.app** | Has a small free/trial credit rather than an indefinite free tier now, but is very easy to deploy to (`railway up`) if you're fine using the trial credit or a few dollars/month. |
 
-io.on('connection', (socket) => {
-  socket.data.roomCode = null;
+For casual play with a friend, **Render.com's free web service** is probably
+the best balance of "actually free" and "zero DevOps" — just be aware of the
+cold-start delay if nobody's used it in the last 15 minutes.
 
-  socket.on('create_room', ({ name, settings }, cb) => {
-    const code = genCode();
-    const clean = sanitizeSettings(settings);
-    const room = {
-      code,
-      hostId: socket.id,
-      status: 'lobby',
-      settings: clean,
-      players: new Map(),
-      secretWord: null,
-      maxAttempts: maxAttemptsFor(clean.length)
-    };
-    rooms.set(code, room);
-    joinRoomInternal(socket, room, name || 'Player');
-    cb && cb({ ok: true, code });
-  });
-
-  socket.on('join_room', ({ code, name }, cb) => {
-    const room = rooms.get((code || '').toUpperCase());
-    if (!room) return cb && cb({ ok: false, error: 'Room not found' });
-    if (room.status === 'playing') return cb && cb({ ok: false, error: 'Game already in progress' });
-    joinRoomInternal(socket, room, name || 'Player');
-    cb && cb({ ok: true, code: room.code });
-  });
-
-  function joinRoomInternal(socket, room, name) {
-    socket.join(room.code);
-    socket.data.roomCode = room.code;
-    room.players.set(socket.id, {
-      id: socket.id,
-      name,
-      connected: true,
-      attempts: [],
-      solved: false,
-      finished: false,
-      score: 0,
-      timer: null
-    });
-    broadcastRoom(room);
-  }
-
-  socket.on('update_settings', (settings) => {
-    const room = rooms.get(socket.data.roomCode);
-    if (!room || room.hostId !== socket.id || room.status !== 'lobby') return;
-    room.settings = sanitizeSettings(settings);
-    room.maxAttempts = maxAttemptsFor(room.settings.length);
-    broadcastRoom(room);
-  });
-
-  socket.on('start_game', () => {
-    const room = rooms.get(socket.data.roomCode);
-    if (!room || room.hostId !== socket.id || room.status !== 'lobby') return;
-    if (room.players.size < 1) return;
-    room.status = 'playing';
-    room.secretWord = randomWord(room.settings.language, room.settings.length);
-    room.maxAttempts = maxAttemptsFor(room.settings.length);
-    for (const p of room.players.values()) {
-      p.attempts = [];
-      p.solved = false;
-      p.finished = false;
-      p.score = 0;
-      clearPlayerTimer(p);
-    }
-    io.to(room.code).emit('game_start', {
-      length: room.settings.length,
-      maxAttempts: room.maxAttempts,
-      language: room.settings.language,
-      timerEnabled: room.settings.timerEnabled,
-      timerSeconds: room.settings.timerSeconds
-    });
-    for (const p of room.players.values()) {
-      startPlayerTimer(room, p);
-    }
-    broadcastRoom(room);
-  });
-
-  socket.on('submit_guess', (guessRaw) => {
-    const room = rooms.get(socket.data.roomCode);
-    if (!room || room.status !== 'playing') return;
-    const player = room.players.get(socket.id);
-    if (!player || player.finished) return;
-
-    const guess = String(guessRaw || '').toLowerCase().trim();
-    if (guess.length !== room.settings.length) {
-      socket.emit('guess_error', { error: `Word must be ${room.settings.length} letters.` });
-      return;
-    }
-    if (!isValidWord(room.settings.language, room.settings.length, guess)) {
-      socket.emit('guess_error', { error: 'Not in dictionary.' });
-      return;
-    }
-    const pattern = computePattern(room.secretWord, guess);
-    player.attempts.push({ guess, pattern, skipped: false });
-    checkPlayerDone(room, player);
-    if (!player.finished) startPlayerTimer(room, player);
-
-    socket.emit('your_attempts', { attempts: player.attempts });
-    broadcastRoom(room);
-  });
-
-  socket.on('rematch', () => {
-    const room = rooms.get(socket.data.roomCode);
-    if (!room || room.hostId !== socket.id) return;
-    room.status = 'lobby';
-    room.secretWord = null;
-    for (const p of room.players.values()) {
-      p.attempts = [];
-      p.solved = false;
-      p.finished = false;
-      p.score = 0;
-      clearPlayerTimer(p);
-    }
-    broadcastRoom(room);
-  });
-
-  socket.on('leave_room', () => {
-    leaveCurrentRoom(socket);
-  });
-
-  socket.on('disconnect', () => {
-    leaveCurrentRoom(socket, true);
-  });
-
-  function leaveCurrentRoom(socket, disconnected) {
-    const code = socket.data.roomCode;
-    if (!code) return;
-    const room = rooms.get(code);
-    if (!room) return;
-    const player = room.players.get(socket.id);
-    if (player) clearPlayerTimer(player);
-
-    if (disconnected) {
-      if (player) player.connected = false;
-    } else {
-      room.players.delete(socket.id);
-      socket.leave(code);
-    }
-    socket.data.roomCode = null;
-
-    const stillConnected = Array.from(room.players.values()).some(p => p.connected);
-    if (!stillConnected || room.players.size === 0) {
-      rooms.delete(code);
-      return;
-    }
-    if (room.hostId === socket.id) {
-      const next = Array.from(room.players.values()).find(p => p.connected);
-      if (next) room.hostId = next.id;
-    }
-    if (room.status === 'playing') maybeEndGame(room);
-    broadcastRoom(room);
-  }
-});
-
-function sanitizeSettings(s) {
-  s = s || {};
-  let length = parseInt(s.length, 10);
-  if (!Number.isFinite(length) || length < 5) length = 5;
-  if (length > 8) length = 8;
-  let language = (s.language === 'fr') ? 'fr' : 'en';
-  let timerEnabled = !!s.timerEnabled;
-  let timerSeconds = parseInt(s.timerSeconds, 10);
-  if (!Number.isFinite(timerSeconds) || timerSeconds < 5) timerSeconds = 10;
-  if (timerSeconds > 120) timerSeconds = 120;
-  return { length, language, timerEnabled, timerSeconds };
-}
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Duel Wordle server running on port ${PORT}`);
-});
+Whichever host you pick, the two things to check in their dashboard are: (1) it
+runs a persistent Node process (not "static site" or "serverless function"),
+and (2) it supports WebSockets on the free tier — both Render and Fly.io do.

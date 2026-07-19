@@ -1,381 +1,219 @@
-const socket = io();
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap');
 
-// ---------- State ----------
-let myId = null;
-let currentRoom = null; // last room_update payload
-let isHost = false;
-let gameConfig = null; // {length, maxAttempts, language, timerEnabled, timerSeconds}
-let myAttempts = []; // [{guess, pattern, skipped}]
-let currentGuess = '';
-let gameOver = false;
-let countdownInterval = null;
-let countdownEndsAt = null;
-
-const KEY_ROWS = {
-  en: ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'],
-  fr: ['AZERTYUIOP', 'QSDFGHJKLM', 'WXCVBN']
-};
-
-// ---------- DOM helpers ----------
-const $ = (id) => document.getElementById(id);
-function showScreen(name) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  $(`screen-${name}`).classList.add('active');
+:root{
+  --bg: #14131c;
+  --bg-alt: #1c1b28;
+  --panel: #211f2e;
+  --line: #33314a;
+  --ink: #f1eef7;
+  --ink-dim: #9a95b3;
+  --correct: #4f9d69;
+  --present: #d1a24c;
+  --absent: #3a3850;
+  --accent: #8b6bf0;
+  --accent-2: #4fd1c5;
+  --danger: #e05a5a;
+  --radius: 10px;
 }
 
-// ---------- Home screen ----------
-$('btn-create').addEventListener('click', () => {
-  const name = $('input-name').value.trim() || 'Player';
-  socket.emit('create_room', { name, settings: currentSettingsFromUI() }, (res) => {
-    if (!res.ok) return alert(res.error || 'Could not create room');
-  });
-});
+*{ box-sizing: border-box; }
 
-$('btn-join').addEventListener('click', () => {
-  const name = $('input-name').value.trim() || 'Player';
-  const code = $('input-code').value.trim().toUpperCase();
-  if (!code) return;
-  socket.emit('join_room', { code, name }, (res) => {
-    if (!res.ok) {
-      $('lobby-msg').textContent = '';
-      alert(res.error || 'Could not join room');
-    }
-  });
-});
-
-$('input-code').addEventListener('input', (e) => {
-  e.target.value = e.target.value.toUpperCase();
-});
-
-function currentSettingsFromUI() {
-  return {
-    length: parseInt($('setting-length').querySelector('.active')?.dataset.val || '5', 10),
-    language: $('setting-language').querySelector('.active')?.dataset.val || 'en',
-    timerEnabled: $('setting-timer-enabled').checked,
-    timerSeconds: parseInt($('setting-timer-seconds').value || '10', 10)
-  };
+html,body{
+  margin:0; padding:0; min-height:100%;
+  background: radial-gradient(circle at 20% -10%, #241f3a 0%, var(--bg) 55%);
+  color: var(--ink);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
 }
 
-// ---------- Settings UI (lobby) ----------
-function wireSegmented(containerId, defaultVal, onChange) {
-  const container = $(containerId);
-  container.querySelectorAll('button').forEach(btn => {
-    if (btn.dataset.val === String(defaultVal)) btn.classList.add('active');
-    btn.addEventListener('click', () => {
-      if (btn.disabled) return;
-      container.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      onChange();
-    });
-  });
+button, input { font-family: inherit; }
+
+#app{
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+  min-height: 100vh;
 }
 
-function pushSettingsIfHost() {
-  if (!isHost) return;
-  socket.emit('update_settings', currentSettingsFromUI());
+.screen{ display:none; animation: fadein .25s ease; }
+.screen.active{ display:block; }
+@keyframes fadein{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;} }
+
+.logo{
+  font-size: clamp(2.2rem, 6vw, 3.2rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 12px 0 2px;
+  text-align:center;
+}
+.logo span{ color: var(--accent-2); }
+.tagline{ text-align:center; color: var(--ink-dim); margin-bottom: 28px; }
+
+.card{
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 18px;
 }
 
-wireSegmented('setting-length', 5, () => { updateAttemptsPreview(); pushSettingsIfHost(); });
-wireSegmented('setting-language', 'en', pushSettingsIfHost);
-$('setting-timer-enabled').addEventListener('change', pushSettingsIfHost);
-$('setting-timer-seconds').addEventListener('change', pushSettingsIfHost);
-
-function updateAttemptsPreview() {
-  const len = parseInt($('setting-length').querySelector('.active')?.dataset.val || '5', 10);
-  $('attempts-preview').textContent = 6 + (len - 5);
+.field{ display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }
+.field span{ font-size: .8rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: .06em; }
+input[type="text"], input[type="number"]{
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 1rem;
+  outline: none;
 }
-updateAttemptsPreview();
+input[type="text"]:focus, input[type="number"]:focus{ border-color: var(--accent); }
 
-function setSettingsUI(settings) {
-  $('setting-length').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.val === String(settings.length)));
-  $('setting-language').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.val === settings.language));
-  $('setting-timer-enabled').checked = settings.timerEnabled;
-  $('setting-timer-seconds').value = settings.timerSeconds;
-  updateAttemptsPreview();
+.home-actions{ display:flex; flex-direction:column; gap:14px; }
+.join-row{ display:flex; gap:8px; }
+.join-row input{ flex:1; text-transform: uppercase; letter-spacing: .12em; }
+
+.btn{
+  border:none; border-radius: 8px; padding: 12px 18px;
+  font-weight:700; font-size: .95rem; cursor:pointer;
+  transition: transform .1s ease, filter .15s ease;
 }
+.btn:active{ transform: scale(.97); }
+.btn-primary{ background: var(--accent); color: #fff; }
+.btn-primary:hover{ filter: brightness(1.1); }
+.btn-secondary{ background: var(--accent-2); color: #10221f; }
+.btn-secondary:hover{ filter: brightness(1.1); }
+.btn-ghost{ background: transparent; color: var(--ink-dim); border: 1px solid var(--line); }
+.btn-ghost:hover{ color: var(--ink); border-color: var(--ink-dim); }
+.btn:disabled{ opacity:.4; cursor:not-allowed; }
 
-function lockSettingsUI(locked) {
-  document.querySelectorAll('#settings-card button, #settings-card input').forEach(el => {
-    el.disabled = locked;
-  });
-  $('settings-lock').textContent = locked ? '(only the host can change these)' : '';
+.code-pill{
+  display:inline-block; background: var(--bg-alt); border:1px solid var(--accent);
+  color: var(--accent-2); font-family:'JetBrains Mono', monospace; letter-spacing:.2em;
+  padding: 4px 12px; border-radius: 999px; font-size: 1rem;
 }
+.code-pill.small{ font-size:.8rem; padding:3px 10px; }
 
-// ---------- Lobby ----------
-$('btn-start').addEventListener('click', () => socket.emit('start_game'));
-$('btn-leave').addEventListener('click', () => {
-  socket.emit('leave_room');
-  currentRoom = null;
-  showScreen('home');
-});
+.hint{ color: var(--ink-dim); margin-top:-8px; margin-bottom:20px; }
 
-function renderLobby(room) {
-  $('lobby-code').textContent = room.code;
-  isHost = room.hostId === myId;
-  lockSettingsUI(!isHost);
-  setSettingsUI(room.settings);
-
-  $('lobby-players').innerHTML = '';
-  room.players.forEach(p => {
-    const li = document.createElement('li');
-    li.innerHTML = `<span><i class="dot ${p.connected ? '' : 'off'}"></i>${escapeHtml(p.name)}${p.id === room.hostId ? '<span class="tag-host">HOST</span>' : ''}</span>`;
-    $('lobby-players').appendChild(li);
-  });
-
-  $('btn-start').style.display = isHost ? 'inline-block' : 'none';
-  $('lobby-msg').textContent = isHost ? '' : 'Waiting for host to start the game…';
+.players-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.players-list li{
+  display:flex; align-items:center; justify-content:space-between;
+  background: var(--bg-alt); border-radius:8px; padding:10px 14px;
 }
+.players-list .tag-host{ color: var(--accent-2); font-size:.75rem; margin-left:6px; }
+.players-list .dot{ width:8px; height:8px; border-radius:50%; background: var(--correct); display:inline-block; margin-right:8px; }
+.players-list .dot.off{ background: var(--danger); }
 
-// ---------- Game screen ----------
-function startGameUI(config) {
-  gameConfig = config;
-  myAttempts = [];
-  currentGuess = '';
-  gameOver = false;
-  $('game-code').textContent = currentRoom ? currentRoom.code : '';
-  buildBoard(config.length, config.maxAttempts);
-  buildKeyboard(config.language);
-  $('msg-banner').textContent = '';
-  showScreen('game');
-  updateTimerBadgeVisibility(config.timerEnabled);
+.field-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; gap:12px; flex-wrap:wrap; }
+.field-row label{ color: var(--ink-dim); font-size:.9rem; }
+
+.segmented{ display:flex; background: var(--bg-alt); border-radius:8px; padding:3px; border:1px solid var(--line); }
+.segmented button{
+  border:none; background:transparent; color: var(--ink-dim); padding:7px 14px;
+  border-radius:6px; cursor:pointer; font-weight:700; font-size:.9rem;
 }
+.segmented button.active{ background: var(--accent); color:#fff; }
 
-function buildBoard(length, maxAttempts) {
-  const board = $('board');
-  board.innerHTML = '';
-  for (let r = 0; r < maxAttempts; r++) {
-    const row = document.createElement('div');
-    row.className = 'board-row';
-    row.dataset.row = r;
-    for (let c = 0; c < length; c++) {
-      const tile = document.createElement('div');
-      tile.className = 'tile';
-      tile.dataset.col = c;
-      row.appendChild(tile);
-    }
-    board.appendChild(row);
-  }
+.timer-controls{ display:flex; align-items:center; gap:10px; }
+.timer-controls input[type=number]{ width:64px; }
+
+.switch{ position:relative; display:inline-block; width:44px; height:24px; }
+.switch input{ opacity:0; width:0; height:0; }
+.slider{
+  position:absolute; cursor:pointer; inset:0; background: var(--bg-alt);
+  border:1px solid var(--line); border-radius:999px; transition:.15s;
 }
-
-function buildKeyboard(language) {
-  const kb = $('keyboard');
-  kb.innerHTML = '';
-  const rows = KEY_ROWS[language] || KEY_ROWS.en;
-  rows.forEach((rowStr, i) => {
-    const rowEl = document.createElement('div');
-    rowEl.className = 'kb-row';
-    if (i === rows.length - 1) {
-      rowEl.appendChild(makeKey('ENTER', 'wide'));
-    }
-    rowStr.split('').forEach(ch => rowEl.appendChild(makeKey(ch)));
-    if (i === rows.length - 1) {
-      rowEl.appendChild(makeKey('DEL', 'wide'));
-    }
-    kb.appendChild(rowEl);
-  });
+.slider:before{
+  content:""; position:absolute; height:16px; width:16px; left:3px; top:3px;
+  background: var(--ink-dim); border-radius:50%; transition:.15s;
 }
+.switch input:checked + .slider{ background: var(--accent); border-color: var(--accent); }
+.switch input:checked + .slider:before{ transform: translateX(20px); background:#fff; }
 
-function makeKey(label, extraClass) {
-  const btn = document.createElement('button');
-  btn.className = 'key' + (extraClass ? ' ' + extraClass : '');
-  btn.textContent = label === 'DEL' ? '⌫' : label;
-  btn.dataset.key = label;
-  btn.addEventListener('click', () => handleKeyInput(label));
-  return btn;
+.attempts-preview{ color: var(--ink-dim); margin:8px 0 0; font-size:.9rem; }
+.lock-hint{ font-size:.75rem; color: var(--ink-dim); font-weight:400; }
+
+.lobby-buttons{ display:flex; gap:10px; margin-top: 6px; }
+.msg{ color: var(--danger); min-height:1.2em; margin-top:10px; }
+
+/* GAME SCREEN */
+.game-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; gap:10px; flex-wrap:wrap; }
+.game-header-left{ display:flex; align-items:center; gap:10px; }
+.timer-badge{
+  font-family:'JetBrains Mono', monospace; background: var(--bg-alt); border:1px solid var(--line);
+  border-radius:999px; padding:4px 10px; font-size:.85rem; color: var(--present);
 }
+.timer-badge.urgent{ color: var(--danger); border-color: var(--danger); }
+.hidden{ display:none !important; }
 
-function handleKeyInput(label) {
-  if (gameOver) return;
-  const rowIndex = myAttempts.length;
-  if (rowIndex >= gameConfig.maxAttempts) return;
-
-  if (label === 'ENTER') {
-    submitGuess();
-  } else if (label === 'DEL') {
-    currentGuess = currentGuess.slice(0, -1);
-    renderCurrentRow();
-  } else {
-    if (currentGuess.length < gameConfig.length) {
-      currentGuess += label.toLowerCase();
-      renderCurrentRow();
-    }
-  }
+.opponents-bar{ display:flex; gap:8px; flex-wrap:wrap; }
+.opp-chip{
+  display:flex; align-items:center; gap:6px; background: var(--bg-alt);
+  border:1px solid var(--line); border-radius:999px; padding:4px 10px; font-size:.8rem;
 }
+.opp-chip .opp-name{ color: var(--ink-dim); }
+.opp-chip .opp-dots{ display:flex; gap:2px; }
+.opp-chip .opp-dots i{ width:7px; height:7px; border-radius:2px; background: var(--absent); display:inline-block; }
+.opp-chip .opp-dots i.correct{ background: var(--correct); }
+.opp-chip .opp-dots i.present{ background: var(--present); }
+.opp-chip.finished{ border-color: var(--accent-2); }
+.opp-chip .opp-score{ font-weight:700; color: var(--accent-2); }
 
-document.addEventListener('keydown', (e) => {
-  if (!$('screen-game').classList.contains('active')) return;
-  if (gameOver) return;
-  const k = e.key;
-  if (k === 'Enter') return handleKeyInput('ENTER');
-  if (k === 'Backspace') return handleKeyInput('DEL');
-  if (/^[a-zA-ZÀ-ÿ]$/.test(k)) return handleKeyInput(k.toUpperCase());
-});
+.board{
+  display:flex; flex-direction:column; gap:6px; align-items:center; margin-bottom:18px;
+}
+.board-row{ display:flex; gap:6px; }
+.tile{
+  width: 48px; height:48px; border:2px solid var(--line); border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  font-family:'JetBrains Mono', monospace; font-weight:700; font-size:1.3rem;
+  text-transform:uppercase; background: var(--bg-alt); color: var(--ink);
+  transition: transform .15s ease, background .3s ease, border-color .3s ease;
+}
+.tile.filled{ border-color: var(--ink-dim); }
+.tile.correct{ background: var(--correct); border-color: var(--correct); color:#fff; }
+.tile.present{ background: var(--present); border-color: var(--present); color:#241a05; }
+.tile.absent{ background: var(--absent); border-color: var(--absent); color: var(--ink-dim); }
+.tile.pop{ animation: pop .12s ease; }
+.tile.skip{ background: transparent; border-style:dashed; border-color: var(--danger); }
+@keyframes pop{ 0%{transform:scale(1)} 50%{transform:scale(1.08)} 100%{transform:scale(1)} }
+.board-row.current .tile.filled{ animation: none; }
 
-function renderCurrentRow() {
-  const rowIndex = myAttempts.length;
-  const row = document.querySelector(`.board-row[data-row="${rowIndex}"]`);
-  if (!row) return;
-  const tiles = row.querySelectorAll('.tile');
-  tiles.forEach((tile, i) => {
-    const ch = currentGuess[i];
-    tile.textContent = ch || '';
-    tile.classList.toggle('filled', !!ch);
-  });
+.msg-banner{
+  text-align:center; min-height: 1.4em; color: var(--danger); font-weight:700; margin-bottom:10px;
 }
 
-function submitGuess() {
-  if (currentGuess.length !== gameConfig.length) {
-    flashMessage(`Word must be ${gameConfig.length} letters.`);
-    return;
-  }
-  socket.emit('submit_guess', currentGuess);
+.keyboard{ display:flex; flex-direction:column; gap:8px; align-items:center; }
+.kb-row{ display:flex; gap:6px; }
+.key{
+  border:none; border-radius:6px; background: var(--bg-alt); color: var(--ink);
+  min-width:32px; height:44px; padding:0 8px; font-weight:700; cursor:pointer;
+  text-transform:uppercase; font-size:.85rem;
 }
+.key.wide{ min-width:56px; font-size:.7rem; }
+.key.correct{ background: var(--correct); color:#fff; }
+.key.present{ background: var(--present); color:#241a05; }
+.key.absent{ background: #26243a; color: var(--ink-dim); }
+.key:active{ transform: scale(.95); }
 
-function flashMessage(text) {
-  const banner = $('msg-banner');
-  banner.textContent = text;
-  setTimeout(() => { if (banner.textContent === text) banner.textContent = ''; }, 2200);
+/* RESULTS */
+.reveal{ text-align:center; color: var(--ink-dim); margin-bottom: 18px; }
+.reveal-word{
+  font-family:'JetBrains Mono', monospace; font-weight:700; color: var(--accent-2);
+  text-transform:uppercase; letter-spacing:.1em; font-size:1.2rem;
 }
-
-function renderMyAttempts(attempts) {
-  myAttempts = attempts;
-  attempts.forEach((att, r) => {
-    const row = document.querySelector(`.board-row[data-row="${r}"]`);
-    if (!row) return;
-    const tiles = row.querySelectorAll('.tile');
-    if (att.skipped) {
-      tiles.forEach(t => { t.classList.add('skip'); t.textContent = ''; });
-      return;
-    }
-    att.guess.split('').forEach((ch, c) => {
-      const tile = tiles[c];
-      tile.textContent = ch;
-      tile.classList.add('filled', 'pop', att.pattern[c]);
-      updateKeyColor(ch, att.pattern[c]);
-    });
-  });
-  currentGuess = '';
-  const nextRow = document.querySelector(`.board-row[data-row="${attempts.length}"]`);
-  if (nextRow) nextRow.classList.add('current');
+.results-list{ list-style:none; margin:0; padding:0; counter-reset: rank; }
+.results-list li{
+  display:flex; justify-content:space-between; align-items:center;
+  background: var(--bg-alt); border-radius:8px; padding:12px 14px; margin-bottom:8px;
 }
+.results-list li:first-child{ border:1px solid var(--accent-2); }
+.results-list .rname{ font-weight:700; }
+.results-list .rscore{ font-family:'JetBrains Mono', monospace; color: var(--accent-2); font-weight:700; }
+.results-list .rsub{ color: var(--ink-dim); font-size:.8rem; }
 
-function updateKeyColor(ch, state) {
-  const btn = document.querySelector(`.key[data-key="${ch.toUpperCase()}"]`);
-  if (!btn) return;
-  const rank = { absent: 0, present: 1, correct: 2 };
-  const cur = btn.dataset.state || 'absent';
-  if (!btn.dataset.state || rank[state] >= rank[cur]) {
-    btn.classList.remove('correct', 'present', 'absent');
-    btn.classList.add(state);
-    btn.dataset.state = state;
-  }
-}
-
-// ---------- Opponents bar ----------
-function renderOpponents(room) {
-  const bar = $('opponents-bar');
-  bar.innerHTML = '';
-  room.players.filter(p => p.id !== myId).forEach(p => {
-    const chip = document.createElement('div');
-    chip.className = 'opp-chip' + (p.finished ? ' finished' : '');
-    const dots = p.pattern.slice(0, p.maxAttempts).map(pat => {
-      if (!pat) return '<i></i>';
-      const solved = pat.every(x => x === 'correct');
-      const hasPresent = pat.some(x => x === 'present');
-      const cls = solved ? 'correct' : (hasPresent ? 'present' : '');
-      return `<i class="${cls}"></i>`;
-    }).join('');
-    chip.innerHTML = `<span class="opp-name">${escapeHtml(p.name)}</span><span class="opp-dots">${dots}</span>${p.finished ? `<span class="opp-score">${p.score}</span>` : ''}`;
-    bar.appendChild(chip);
-  });
-}
-
-// ---------- Timer ----------
-function updateTimerBadgeVisibility(enabled) {
-  $('timer-badge').classList.toggle('hidden', !enabled);
-}
-
-function restartRowCountdown(seconds) {
-  clearInterval(countdownInterval);
-  if (!gameConfig || !gameConfig.timerEnabled) return;
-  countdownEndsAt = Date.now() + seconds * 1000;
-  updateTimerDisplay();
-  countdownInterval = setInterval(updateTimerDisplay, 250);
-}
-
-function updateTimerDisplay() {
-  if (!countdownEndsAt) return;
-  const remaining = Math.max(0, Math.ceil((countdownEndsAt - Date.now()) / 1000));
-  $('timer-value').textContent = remaining;
-  $('timer-badge').classList.toggle('urgent', remaining <= 3);
-  if (remaining <= 0) clearInterval(countdownInterval);
-}
-
-// ---------- Results ----------
-function renderResults(payload) {
-  gameOver = true;
-  clearInterval(countdownInterval);
-  $('reveal-word').textContent = payload.secret;
-  const sorted = [...payload.players].sort((a, b) => b.score - a.score);
-  $('results-list').innerHTML = '';
-  sorted.forEach((p, i) => {
-    const li = document.createElement('li');
-    li.innerHTML = `<span><span class="rname">${i === 0 ? '🏆 ' : ''}${escapeHtml(p.name)}</span><br><span class="rsub">${p.solved ? `solved in ${p.attemptsUsed}` : 'not solved'}</span></span><span class="rscore">${p.score} pts</span>`;
-    $('results-list').appendChild(li);
-  });
-  $('btn-rematch').style.display = isHost ? 'inline-block' : 'none';
-  showScreen('results');
-}
-
-$('btn-rematch').addEventListener('click', () => socket.emit('rematch'));
-$('btn-home').addEventListener('click', () => {
-  socket.emit('leave_room');
-  currentRoom = null;
-  showScreen('home');
-});
-
-// ---------- Socket events ----------
-socket.on('connect', () => { myId = socket.id; });
-
-socket.on('room_update', (room) => {
-  currentRoom = room;
-  isHost = room.hostId === myId;
-  if (room.status === 'lobby') {
-    renderLobby(room);
-    showScreen('lobby');
-  } else if (room.status === 'playing') {
-    renderOpponents(room);
-  } else if (room.status === 'finished') {
-    renderOpponents(room);
-  }
-});
-
-socket.on('game_start', (config) => {
-  startGameUI(config);
-  if (config.timerEnabled) restartRowCountdown(config.timerSeconds);
-});
-
-socket.on('your_attempts', ({ attempts }) => {
-  renderMyAttempts(attempts);
-  if (gameConfig && gameConfig.timerEnabled && attempts.length < gameConfig.maxAttempts) {
-    restartRowCountdown(gameConfig.timerSeconds);
-  } else {
-    clearInterval(countdownInterval);
-  }
-  const last = attempts[attempts.length - 1];
-  if (last && !last.skipped && last.pattern.every(p => p === 'correct')) {
-    flashMessage('You solved it! 🎉');
-  } else if (attempts.length >= (gameConfig ? gameConfig.maxAttempts : Infinity)) {
-    flashMessage('Out of attempts — waiting for opponent…');
-  }
-});
-
-socket.on('guess_error', ({ error }) => flashMessage(error));
-
-socket.on('game_over', (payload) => renderResults(payload));
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+@media (max-width: 420px){
+  .tile{ width:40px; height:40px; font-size:1.1rem; }
+  .key{ min-width:26px; height:40px; padding:0 6px; font-size:.75rem; }
 }
