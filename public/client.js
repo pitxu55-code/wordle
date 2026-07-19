@@ -171,6 +171,8 @@ function startGameUI(config) {
   } else {
     roundBadge.classList.add('hidden');
   }
+
+  $('btn-stop-game').classList.toggle('hidden', !isHost);
 }
 
 function buildBoard(length, maxAttempts) {
@@ -378,6 +380,7 @@ function renderResults(payload) {
 
   $('btn-next-round').classList.toggle('hidden', isFinal || !isHost);
   $('btn-rematch').classList.toggle('hidden', !isFinal || !isHost);
+  $('btn-stop-game-results').classList.toggle('hidden', isFinal || !isHost);
   $('results-wait-msg').textContent = isHost ? '' : (isFinal ? '' : 'Waiting for host to start the next round…');
 
   showScreen('results');
@@ -391,6 +394,21 @@ $('btn-home').addEventListener('click', () => {
   showScreen('home');
 });
 
+// ---------- Stop game (host) ----------
+function openStopConfirm() {
+  $('stop-confirm').classList.remove('hidden');
+}
+function closeStopConfirm() {
+  $('stop-confirm').classList.add('hidden');
+}
+$('btn-stop-game').addEventListener('click', openStopConfirm);
+$('btn-stop-game-results').addEventListener('click', openStopConfirm);
+$('btn-stop-confirm-no').addEventListener('click', closeStopConfirm);
+$('btn-stop-confirm-yes').addEventListener('click', () => {
+  socket.emit('stop_game');
+  closeStopConfirm();
+});
+
 // ---------- Socket events ----------
 socket.on('connect', () => { myId = socket.id; });
 
@@ -398,10 +416,17 @@ socket.on('room_update', (room) => {
   currentRoom = room;
   isHost = room.hostId === myId;
   if (room.status === 'lobby') {
+    clearInterval(countdownInterval);
+    gameConfig = null;
+    myAttempts = [];
+    currentGuess = '';
+    gameOver = false;
+    closeStopConfirm();
     renderLobby(room);
     showScreen('lobby');
   } else if (room.status === 'playing') {
     renderOpponents(room);
+    $('btn-stop-game').classList.toggle('hidden', !isHost);
   } else if (room.status === 'round_over' || room.status === 'finished') {
     renderOpponents(room);
     // Keep the results screen's button visibility in sync if host status changes mid-wait
@@ -409,6 +434,7 @@ socket.on('room_update', (room) => {
       const isFinal = room.status === 'finished';
       $('btn-next-round').classList.toggle('hidden', isFinal || !isHost);
       $('btn-rematch').classList.toggle('hidden', !isFinal || !isHost);
+      $('btn-stop-game-results').classList.toggle('hidden', isFinal || !isHost);
       $('results-wait-msg').textContent = isHost ? '' : (isFinal ? '' : 'Waiting for host to start the next round…');
     }
   }

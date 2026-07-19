@@ -26,6 +26,8 @@ guess the same secret word.
   number of browsers/devices can connect and compete at once
 - Opponents' progress is shown live as colored dots only (not letters), so it
   stays a fair race
+- Host can stop the game at any point (mid-round or between rounds) and send
+  everyone straight back to the lobby with a confirmation prompt first
 
 ## Project structure
 

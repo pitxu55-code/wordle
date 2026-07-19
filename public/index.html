@@ -110,7 +110,20 @@
       <div id="msg-banner" class="msg-banner"></div>
 
       <div id="keyboard" class="keyboard"></div>
+
+      <div class="stop-game-row">
+        <button id="btn-stop-game" class="btn btn-ghost btn-small hidden">Stop Game</button>
+      </div>
     </section>
+    <div id="stop-confirm" class="confirm-overlay hidden">
+      <div class="confirm-box">
+        <p>Stop the game for everyone and return to the lobby?</p>
+        <div class="lobby-buttons">
+          <button id="btn-stop-confirm-yes" class="btn btn-primary">Yes, stop it</button>
+          <button id="btn-stop-confirm-no" class="btn btn-ghost">Cancel</button>
+        </div>
+      </div>
+    </div>
 
     <!-- RESULTS SCREEN -->
     <section id="screen-results" class="screen">
@@ -122,6 +135,7 @@
       <div class="lobby-buttons">
         <button id="btn-next-round" class="btn btn-primary">Next Round</button>
         <button id="btn-rematch" class="btn btn-primary">New Game</button>
+        <button id="btn-stop-game-results" class="btn btn-ghost hidden">Stop Game</button>
         <button id="btn-home" class="btn btn-ghost">Back to Home</button>
       </div>
       <p id="results-wait-msg" class="msg" style="color: var(--ink-dim);"></p>

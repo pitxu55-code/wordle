@@ -282,9 +282,7 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on('rematch', () => {
-    const room = rooms.get(socket.data.roomCode);
-    if (!room || room.hostId !== socket.id) return;
+  function resetToLobby(room) {
     room.status = 'lobby';
     room.secretWord = null;
     room.round = 0;
@@ -297,6 +295,19 @@ io.on('connection', (socket) => {
       clearPlayerTimer(p);
     }
     broadcastRoom(room);
+  }
+
+  socket.on('rematch', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.hostId !== socket.id) return;
+    resetToLobby(room);
+  });
+
+  socket.on('stop_game', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.hostId !== socket.id) return;
+    if (room.status !== 'playing' && room.status !== 'round_over') return;
+    resetToLobby(room);
   });
 
   socket.on('leave_room', () => {

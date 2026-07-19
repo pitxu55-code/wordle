@@ -199,18 +199,31 @@ input[type="text"]:focus, input[type="number"]:focus{ border-color: var(--accent
 .kb-row{ display:flex; gap:6px; }
 .key{
   border:1px solid var(--line); border-radius:6px; background: #302d47; color: var(--ink);
-  min-width:32px; height:44px; padding:0 8px; font-weight:700; cursor:pointer;
-  text-transform:uppercase; font-size:.9rem;
+  min-width:38px; height:50px; padding:0 8px; font-weight:700; cursor:pointer;
+  text-transform:uppercase; font-size:1rem;
   box-shadow: 0 0 0 1px rgba(139,107,240,0.12);
   opacity: 1;
   transition: background .2s ease, opacity .2s ease, transform .1s ease, border-color .2s ease, box-shadow .2s ease;
 }
-.key.wide{ min-width:56px; font-size:.7rem; }
+.key.wide{ min-width:62px; font-size:.75rem; }
 .key:hover{ border-color: var(--accent-2); }
 .key.correct{ background: var(--correct); border-color: var(--correct); color:#fff; opacity:1; box-shadow:none; }
 .key.present{ background: var(--present); border-color: var(--present); color:#241a05; opacity:1; box-shadow:none; }
 .key.absent{ background: transparent; border-color: var(--line); color: var(--ink-dim); opacity:.32; box-shadow:none; }
 .key:active{ transform: scale(.95); }
+
+.stop-game-row{ display:flex; justify-content:center; margin-top:20px; }
+.btn-small{ padding:8px 14px; font-size:.8rem; }
+
+.confirm-overlay{
+  position:fixed; inset:0; background: rgba(10,9,16,.7);
+  display:flex; align-items:center; justify-content:center; padding:20px; z-index:50;
+}
+.confirm-box{
+  background: var(--panel); border:1px solid var(--line); border-radius: var(--radius);
+  padding:22px; max-width:340px; text-align:center;
+}
+.confirm-box p{ margin-top:0; margin-bottom:18px; }
 
 /* RESULTS */
 .reveal{ text-align:center; color: var(--ink-dim); margin-bottom: 18px; }
@@ -229,6 +242,10 @@ input[type="text"]:focus, input[type="number"]:focus{ border-color: var(--accent
 .results-list .rsub{ color: var(--ink-dim); font-size:.8rem; }
 
 @media (max-width: 420px){
-  .tile{ width:40px; height:40px; font-size:1.1rem; }
-  .key{ min-width:26px; height:40px; padding:0 6px; font-size:.75rem; }
+  #app{ padding-left:10px; padding-right:10px; }
+  .tile{ width:38px; height:38px; font-size:1.05rem; }
+  .keyboard{ gap:6px; }
+  .kb-row{ gap:4px; }
+  .key{ min-width:30px; height:48px; padding:0 4px; font-size:.9rem; }
+  .key.wide{ min-width:42px; font-size:.62rem; }
 }
