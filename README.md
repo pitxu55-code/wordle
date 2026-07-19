@@ -7,7 +7,12 @@ guess the same secret word.
 ## Features
 
 - Word length 5–8 letters (configurable per room)
-- Attempts = letters + 1 (5→6, 6→7, 7→8, 8→9)
+- Attempts = letters + 1 by default (5→6, 6→7, 7→8, 8→9), but fully
+  overridable per room (2–20 attempts)
+- Multi-round sessions: set how many rounds to play in a row (1–20). Everyone
+  must finish the current round (solve or run out of attempts) before the
+  host can advance to the next one; scores accumulate across rounds and the
+  final screen ranks players by their running total
 - Scoring: guessing on attempt *k* scores `(maxAttempts - k) + 1` points
   (earlier = more points; not solving = 0 points)
 - English / French dictionaries, switchable in the settings menu

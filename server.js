@@ -43,8 +43,8 @@ function genCode() {
   return code;
 }
 
-function maxAttemptsFor(len) {
-  // 5 letters -> 6 attempts, +1 attempt per extra letter
+function defaultAttemptsFor(len) {
+  // 5 letters -> 6 attempts, +1 attempt per extra letter (used as a fallback default)
   return 6 + (len - 5);
 }
 
@@ -54,6 +54,8 @@ function publicRoomState(room) {
     hostId: room.hostId,
     status: room.status,
     settings: room.settings,
+    round: room.round,
+    totalRounds: room.settings.rounds,
     players: Array.from(room.players.values()).map(p => ({
       id: p.id,
       name: p.name,
@@ -61,6 +63,7 @@ function publicRoomState(room) {
       finished: p.finished,
       solved: p.solved,
       score: p.score,
+      totalScore: p.totalScore,
       attemptsUsed: p.attempts.length,
       maxAttempts: room.maxAttempts,
       pattern: p.attempts.map(a => a ? a.pattern : null) // colors only, no letters, for opponents
@@ -145,15 +148,49 @@ function checkPlayerDone(room, player) {
   }
 }
 
+function startRound(room) {
+  room.secretWord = randomWord(room.settings.language, room.settings.length);
+  room.maxAttempts = room.settings.attempts;
+  for (const p of room.players.values()) {
+    p.attempts = [];
+    p.solved = false;
+    p.finished = false;
+    p.score = 0;
+    clearPlayerTimer(p);
+  }
+  room.status = 'playing';
+  io.to(room.code).emit('game_start', {
+    length: room.settings.length,
+    maxAttempts: room.maxAttempts,
+    language: room.settings.language,
+    timerEnabled: room.settings.timerEnabled,
+    timerSeconds: room.settings.timerSeconds,
+    round: room.round,
+    totalRounds: room.settings.rounds
+  });
+  for (const p of room.players.values()) {
+    startPlayerTimer(room, p);
+  }
+  broadcastRoom(room);
+}
+
 function maybeEndGame(room) {
   const allFinished = Array.from(room.players.values()).every(p => p.finished || !p.connected);
   if (allFinished && room.status === 'playing') {
-    room.status = 'finished';
-    for (const p of room.players.values()) clearPlayerTimer(p);
+    for (const p of room.players.values()) {
+      clearPlayerTimer(p);
+      p.totalScore = (p.totalScore || 0) + p.score;
+    }
+    const isFinalRound = room.round >= room.settings.rounds;
+    room.status = isFinalRound ? 'finished' : 'round_over';
     io.to(room.code).emit('game_over', {
       secret: room.secretWord,
+      round: room.round,
+      totalRounds: room.settings.rounds,
+      isFinalRound,
       players: Array.from(room.players.values()).map(p => ({
-        id: p.id, name: p.name, score: p.score, solved: p.solved, attemptsUsed: p.attempts.length
+        id: p.id, name: p.name, score: p.score, totalScore: p.totalScore,
+        solved: p.solved, attemptsUsed: p.attempts.length
       }))
     });
     broadcastRoom(room);
@@ -173,7 +210,8 @@ io.on('connection', (socket) => {
       settings: clean,
       players: new Map(),
       secretWord: null,
-      maxAttempts: maxAttemptsFor(clean.length)
+      round: 0,
+      maxAttempts: clean.attempts
     };
     rooms.set(code, room);
     joinRoomInternal(socket, room, name || 'Player');
@@ -183,7 +221,9 @@ io.on('connection', (socket) => {
   socket.on('join_room', ({ code, name }, cb) => {
     const room = rooms.get((code || '').toUpperCase());
     if (!room) return cb && cb({ ok: false, error: 'Room not found' });
-    if (room.status === 'playing') return cb && cb({ ok: false, error: 'Game already in progress' });
+    if (room.status === 'playing' || room.status === 'round_over') {
+      return cb && cb({ ok: false, error: 'Game already in progress' });
+    }
     joinRoomInternal(socket, room, name || 'Player');
     cb && cb({ ok: true, code: room.code });
   });
@@ -199,6 +239,7 @@ io.on('connection', (socket) => {
       solved: false,
       finished: false,
       score: 0,
+      totalScore: 0,
       timer: null
     });
     broadcastRoom(room);
@@ -208,7 +249,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(socket.data.roomCode);
     if (!room || room.hostId !== socket.id || room.status !== 'lobby') return;
     room.settings = sanitizeSettings(settings);
-    room.maxAttempts = maxAttemptsFor(room.settings.length);
+    room.maxAttempts = room.settings.attempts;
     broadcastRoom(room);
   });
 
@@ -216,27 +257,17 @@ io.on('connection', (socket) => {
     const room = rooms.get(socket.data.roomCode);
     if (!room || room.hostId !== socket.id || room.status !== 'lobby') return;
     if (room.players.size < 1) return;
-    room.status = 'playing';
-    room.secretWord = randomWord(room.settings.language, room.settings.length);
-    room.maxAttempts = maxAttemptsFor(room.settings.length);
-    for (const p of room.players.values()) {
-      p.attempts = [];
-      p.solved = false;
-      p.finished = false;
-      p.score = 0;
-      clearPlayerTimer(p);
-    }
-    io.to(room.code).emit('game_start', {
-      length: room.settings.length,
-      maxAttempts: room.maxAttempts,
-      language: room.settings.language,
-      timerEnabled: room.settings.timerEnabled,
-      timerSeconds: room.settings.timerSeconds
-    });
-    for (const p of room.players.values()) {
-      startPlayerTimer(room, p);
-    }
-    broadcastRoom(room);
+    room.round = 1;
+    for (const p of room.players.values()) p.totalScore = 0;
+    startRound(room);
+  });
+
+  socket.on('next_round', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.hostId !== socket.id || room.status !== 'round_over') return;
+    if (room.round >= room.settings.rounds) return;
+    room.round += 1;
+    startRound(room);
   });
 
   socket.on('submit_guess', (guessRaw) => {
@@ -268,11 +299,13 @@ io.on('connection', (socket) => {
     if (!room || room.hostId !== socket.id) return;
     room.status = 'lobby';
     room.secretWord = null;
+    room.round = 0;
     for (const p of room.players.values()) {
       p.attempts = [];
       p.solved = false;
       p.finished = false;
       p.score = 0;
+      p.totalScore = 0;
       clearPlayerTimer(p);
     }
     broadcastRoom(room);
@@ -326,7 +359,13 @@ function sanitizeSettings(s) {
   let timerSeconds = parseInt(s.timerSeconds, 10);
   if (!Number.isFinite(timerSeconds) || timerSeconds < 5) timerSeconds = 10;
   if (timerSeconds > 120) timerSeconds = 120;
-  return { length, language, timerEnabled, timerSeconds };
+  let attempts = parseInt(s.attempts, 10);
+  if (!Number.isFinite(attempts) || attempts < 2) attempts = defaultAttemptsFor(length);
+  if (attempts > 20) attempts = 20;
+  let rounds = parseInt(s.rounds, 10);
+  if (!Number.isFinite(rounds) || rounds < 1) rounds = 1;
+  if (rounds > 20) rounds = 20;
+  return { length, language, timerEnabled, timerSeconds, attempts, rounds };
 }
 
 const PORT = process.env.PORT || 3000;

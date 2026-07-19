@@ -52,8 +52,14 @@ function currentSettingsFromUI() {
     length: parseInt($('setting-length').querySelector('.active')?.dataset.val || '5', 10),
     language: $('setting-language').querySelector('.active')?.dataset.val || 'en',
     timerEnabled: $('setting-timer-enabled').checked,
-    timerSeconds: parseInt($('setting-timer-seconds').value || '10', 10)
+    timerSeconds: parseInt($('setting-timer-seconds').value || '10', 10),
+    attempts: parseInt($('setting-attempts').value || '6', 10),
+    rounds: parseInt($('setting-rounds').value || '1', 10)
   };
+}
+
+function defaultAttemptsForLength(len) {
+  return 6 + (len - 5);
 }
 
 // ---------- Settings UI (lobby) ----------
@@ -75,23 +81,42 @@ function pushSettingsIfHost() {
   socket.emit('update_settings', currentSettingsFromUI());
 }
 
-wireSegmented('setting-length', 5, () => { updateAttemptsPreview(); pushSettingsIfHost(); });
+let attemptsManuallySet = false;
+
+wireSegmented('setting-length', 5, () => {
+  if (!attemptsManuallySet) applyAutoAttempts();
+  pushSettingsIfHost();
+});
 wireSegmented('setting-language', 'en', pushSettingsIfHost);
 $('setting-timer-enabled').addEventListener('change', pushSettingsIfHost);
 $('setting-timer-seconds').addEventListener('change', pushSettingsIfHost);
 
-function updateAttemptsPreview() {
+$('setting-attempts').addEventListener('input', () => {
+  attemptsManuallySet = true;
+});
+$('setting-attempts').addEventListener('change', pushSettingsIfHost);
+$('setting-rounds').addEventListener('change', pushSettingsIfHost);
+
+$('btn-attempts-auto').addEventListener('click', () => {
+  attemptsManuallySet = false;
+  applyAutoAttempts();
+  pushSettingsIfHost();
+});
+
+function applyAutoAttempts() {
   const len = parseInt($('setting-length').querySelector('.active')?.dataset.val || '5', 10);
-  $('attempts-preview').textContent = 6 + (len - 5);
+  $('setting-attempts').value = defaultAttemptsForLength(len);
 }
-updateAttemptsPreview();
+applyAutoAttempts();
 
 function setSettingsUI(settings) {
   $('setting-length').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.val === String(settings.length)));
   $('setting-language').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.val === settings.language));
   $('setting-timer-enabled').checked = settings.timerEnabled;
   $('setting-timer-seconds').value = settings.timerSeconds;
-  updateAttemptsPreview();
+  $('setting-attempts').value = settings.attempts;
+  attemptsManuallySet = settings.attempts !== defaultAttemptsForLength(settings.length);
+  $('setting-rounds').value = settings.rounds;
 }
 
 function lockSettingsUI(locked) {
@@ -138,6 +163,14 @@ function startGameUI(config) {
   $('msg-banner').textContent = '';
   showScreen('game');
   updateTimerBadgeVisibility(config.timerEnabled);
+
+  const roundBadge = $('round-badge');
+  if (config.totalRounds > 1) {
+    roundBadge.textContent = `Round ${config.round}/${config.totalRounds}`;
+    roundBadge.classList.remove('hidden');
+  } else {
+    roundBadge.classList.add('hidden');
+  }
 }
 
 function buildBoard(length, maxAttempts) {
@@ -316,17 +349,41 @@ function renderResults(payload) {
   gameOver = true;
   clearInterval(countdownInterval);
   $('reveal-word').textContent = payload.secret;
-  const sorted = [...payload.players].sort((a, b) => b.score - a.score);
+
+  const isFinal = payload.isFinalRound;
+  const multiRound = payload.totalRounds > 1;
+
+  if (isFinal) {
+    $('results-title').textContent = multiRound
+      ? `Final Results — ${payload.totalRounds} Rounds`
+      : 'Round Over';
+  } else {
+    $('results-title').textContent = `Round ${payload.round} of ${payload.totalRounds} Complete`;
+  }
+
+  // Rank by cumulative total once rounds are involved, otherwise by this round's score
+  const rankKey = multiRound ? 'totalScore' : 'score';
+  const sorted = [...payload.players].sort((a, b) => b[rankKey] - a[rankKey]);
   $('results-list').innerHTML = '';
   sorted.forEach((p, i) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span><span class="rname">${i === 0 ? '🏆 ' : ''}${escapeHtml(p.name)}</span><br><span class="rsub">${p.solved ? `solved in ${p.attemptsUsed}` : 'not solved'}</span></span><span class="rscore">${p.score} pts</span>`;
+    const sub = p.solved ? `solved in ${p.attemptsUsed}` : 'not solved';
+    const scoreLine = multiRound
+      ? `<span class="rscore">${p.totalScore} pts</span>`
+      : `<span class="rscore">${p.score} pts</span>`;
+    const roundSub = multiRound ? `${sub} · this round: ${p.score} pts` : sub;
+    li.innerHTML = `<span><span class="rname">${i === 0 ? '🏆 ' : ''}${escapeHtml(p.name)}</span><br><span class="rsub">${roundSub}</span></span>${scoreLine}`;
     $('results-list').appendChild(li);
   });
-  $('btn-rematch').style.display = isHost ? 'inline-block' : 'none';
+
+  $('btn-next-round').classList.toggle('hidden', isFinal || !isHost);
+  $('btn-rematch').classList.toggle('hidden', !isFinal || !isHost);
+  $('results-wait-msg').textContent = isHost ? '' : (isFinal ? '' : 'Waiting for host to start the next round…');
+
   showScreen('results');
 }
 
+$('btn-next-round').addEventListener('click', () => socket.emit('next_round'));
 $('btn-rematch').addEventListener('click', () => socket.emit('rematch'));
 $('btn-home').addEventListener('click', () => {
   socket.emit('leave_room');
@@ -345,8 +402,15 @@ socket.on('room_update', (room) => {
     showScreen('lobby');
   } else if (room.status === 'playing') {
     renderOpponents(room);
-  } else if (room.status === 'finished') {
+  } else if (room.status === 'round_over' || room.status === 'finished') {
     renderOpponents(room);
+    // Keep the results screen's button visibility in sync if host status changes mid-wait
+    if ($('screen-results').classList.contains('active')) {
+      const isFinal = room.status === 'finished';
+      $('btn-next-round').classList.toggle('hidden', isFinal || !isHost);
+      $('btn-rematch').classList.toggle('hidden', !isFinal || !isHost);
+      $('results-wait-msg').textContent = isHost ? '' : (isFinal ? '' : 'Waiting for host to start the next round…');
+    }
   }
 });
 

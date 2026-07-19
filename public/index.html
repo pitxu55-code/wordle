@@ -73,7 +73,18 @@
           </div>
         </div>
 
-        <p class="attempts-preview">Attempts: <b id="attempts-preview">6</b></p>
+        <div class="field-row">
+          <label>Attempts</label>
+          <div class="attempts-controls">
+            <input type="number" id="setting-attempts" min="2" max="20" value="6" />
+            <button type="button" id="btn-attempts-auto" class="btn-mini" title="Reset to letters + 1">Auto</button>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <label>Rounds</label>
+          <input type="number" id="setting-rounds" min="1" max="20" value="1" />
+        </div>
       </div>
 
       <div class="lobby-buttons">
@@ -88,6 +99,7 @@
       <div class="game-header">
         <div class="game-header-left">
           <span class="code-pill small" id="game-code"></span>
+          <span id="round-badge" class="round-badge hidden"></span>
           <span id="timer-badge" class="timer-badge hidden">⏱ <span id="timer-value">10</span>s</span>
         </div>
         <div id="opponents-bar" class="opponents-bar"></div>
@@ -102,15 +114,17 @@
 
     <!-- RESULTS SCREEN -->
     <section id="screen-results" class="screen">
-      <h2>Round Over</h2>
+      <h2 id="results-title">Round Over</h2>
       <p class="reveal">The word was <span id="reveal-word" class="reveal-word"></span></p>
       <div class="card">
         <ol id="results-list" class="results-list"></ol>
       </div>
       <div class="lobby-buttons">
-        <button id="btn-rematch" class="btn btn-primary">Rematch</button>
+        <button id="btn-next-round" class="btn btn-primary">Next Round</button>
+        <button id="btn-rematch" class="btn btn-primary">New Game</button>
         <button id="btn-home" class="btn btn-ghost">Back to Home</button>
       </div>
+      <p id="results-wait-msg" class="msg" style="color: var(--ink-dim);"></p>
     </section>
 
   </div>
